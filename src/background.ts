@@ -41,6 +41,7 @@ async function createTmiClient(user: TwitchUser) {
   log('Joining channels')
   for (let i = 0; i < chatsToJoin.length; i++) {
     const channel = chatsToJoin.pop()
+    if (channel && readClient.getChannels().includes(`#${channel}`)) continue
     log('Joining channel', channel)
     if (channel) await readClient.join(channel)
     await new Promise((res) => setTimeout(res, 50))
@@ -65,18 +66,16 @@ const chatsToJoin: string[] = []
 
 async function addTab(tab: chrome.tabs.Tab) {
   if (tab.url?.includes('twitch.tv') && tab.id && !tabs[tab.id]) {
-    tabs[tab.id] = tab
     await getUser(tab.id)
-    await update(tab.id, true)
+    await update(tab, true)
   }
 }
 
 async function removeTab(tab: chrome.tabs.Tab | number) {
   const tabId = typeof tab === 'number' ? tab : tab.id
 
-  if (tabId && tabs[tabId]) {
-    await update(tabId, false)
-    delete tabs[tabId]
+  if (tabId) {
+    await update(tabs[tabId], false)
   }
 }
 
@@ -87,18 +86,31 @@ async function getUser(tabId: number) {
   )
 }
 
-async function update(tabId: number, active: boolean) {
-  if (readClient?.readyState() === 'OPEN') {
+async function update(tab: chrome.tabs.Tab, active: boolean) {
+  const tabId = tab?.id
+  if (readClient?.readyState() === 'OPEN' && tabId) {
     if (active) {
-      await readClient.join(tabs[tabId]?.url?.split('/')[3] || '')
-      log('Joining channel', tabs[tabId]?.url?.split('/')[3] || '')
+      const channel = tab?.url?.split('/')[3] || ''
+      if (readClient.getChannels().includes(`#${channel}`) || tabs[tabId])
+        return
+      await readClient.join(channel)
+      log('Joining channel', channel)
       log('Channels', readClient.getChannels())
+      tabs[tabId] = tab
     }
     if (!active) {
-      await readClient.part(tabs[tabId]?.url?.split('/')[3] || '')
-      log('Leaving channel', tabs[tabId]?.url?.split('/')[3] || '')
+      const channel = tab?.url?.split('/')[3] || ''
+      if (!readClient.getChannels().includes(`#${channel}`) && !tabs[tabId])
+        return
+      await readClient.part(channel)
+      log('Leaving channel', channel)
+      delete tabs[tabId]
     }
-  } else chatsToJoin.push(tabs[tabId].url?.split('/')[3] || '')
+  } else if (tabId && tab) {
+    const channel = tab?.url?.split('/')[3] || ''
+    if (chatsToJoin.includes(`#${channel}`) || tabs[tabId]) return
+    chatsToJoin.push(channel)
+  }
 }
 
 chrome.webNavigation.onCompleted.addListener(
@@ -132,7 +144,8 @@ chrome.runtime.onMessage.addListener(async function (request) {
   if (request.type === 'user') {
     const twitchUser = request.user
 
-    if (twitchUser) await createTmiClient(twitchUser)
+    if (twitchUser && (!readClient || !writeClient))
+      await createTmiClient(twitchUser)
     return true
   }
 })
