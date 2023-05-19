@@ -1,0 +1,40 @@
+{
+    "name": "Twitch Name Color Changer",
+    "description": "This extension will change your name color in twitch chat after each message.",
+    "version": "1.0",
+    "manifest_version": 3,
+    "action": {},
+    "permissions": [
+        "activeTab",
+        "scripting",
+        "storage",
+        "webNavigation",
+        "declarativeContent"
+    ],
+    "host_permissions": [
+        "https://*.twitch.tv/*"
+    ],
+    "background": {
+        "service_worker": "background.js",
+        "run_at": "document_idle"
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "https://*.twitch.tv/*"
+            ],
+            "js": [
+                "bridge.js"
+            ]
+        },
+        {
+            "world": "MAIN",
+            "matches": [
+                "https://*.twitch.tv/*"
+            ],
+            "js": [
+                "content.js"
+            ]
+        }
+    ]
+}

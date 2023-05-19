@@ -1,12 +1,27 @@
 {
-  "name": "TNCCE",
+  "name": "tncce",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "webpack --config webpack/webpack.config.js"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC"
+  "license": "ISC",
+  "devDependencies": {
+    "@types/chrome": "^0.0.236",
+    "@types/color": "^3.0.3",
+    "@types/node": "^20.2.1",
+    "@types/tmi.js": "^1.8.3",
+    "copy-webpack-plugin": "^11.0.0",
+    "ts-loader": "^9.4.2",
+    "typescript": "^5.0.4",
+    "webpack": "^5.83.1",
+    "webpack-cli": "^5.1.1"
+  },
+  "dependencies": {
+    "color": "^4.2.3",
+    "tmi.js": "^1.8.5"
+  }
 }
