@@ -34,21 +34,28 @@ async function createTmiClient(user: TwitchUser) {
 
   plugins = new Plugins(writeClient, user)
 
+  readClient.on('connecting', () => {
+    log('Connecting ReadClient')
+  })
+  readClient.on('connected', async () => {
+    log('Joining channels')
+    for (let i = 0; i < chatsToJoin.length; i++) {
+      const channel = chatsToJoin.pop()
+      if (channel && readClient.getChannels().includes(`#${channel}`)) continue
+      log('Joining channel', channel)
+      if (channel) await readClient.join(channel)
+      await new Promise((res) => setTimeout(res, 50))
+    }
+
+    log('Adding listeners')
+    addListeners()
+
+    log('ReadClient connected')
+  })
+
   log('Connecting TMI Clients')
   await readClient.connect()
   await writeClient.connect()
-
-  log('Joining channels')
-  for (let i = 0; i < chatsToJoin.length; i++) {
-    const channel = chatsToJoin.pop()
-    if (channel && readClient.getChannels().includes(`#${channel}`)) continue
-    log('Joining channel', channel)
-    if (channel) await readClient.join(channel)
-    await new Promise((res) => setTimeout(res, 50))
-  }
-
-  log('Adding listeners')
-  addListeners()
 }
 
 function addListeners() {
@@ -128,7 +135,7 @@ chrome.webNavigation.onCompleted.addListener(
 
 chrome.tabs.onRemoved.addListener(removeTab)
 chrome.tabs.onUpdated.addListener(async function (tabId, changeInfo, tab) {
-  if (changeInfo.status === 'complete' && changeInfo.url !== tabs[tabId]?.url) {
+  if (changeInfo.status === 'complete') {
     await removeTab(tabId)
     await addTab(tab)
   }
