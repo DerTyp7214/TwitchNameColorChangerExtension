@@ -1,11 +1,13 @@
-export function getTimeString() {
+export function getTimeString(includingMillis: boolean = true) {
   const date = new Date()
   const hours = String(date.getHours()).padStart(2, '0')
   const minutes = String(date.getMinutes()).padStart(2, '0')
   const seconds = String(date.getSeconds()).padStart(2, '0')
   const milliseconds = String(date.getMilliseconds()).padStart(3, '0')
 
-  return `${hours}:${minutes}:${seconds}.${milliseconds}`
+  return `${hours}:${minutes}:${seconds}${
+    includingMillis ? `.${milliseconds}` : ''
+  }`
 }
 
 export function log(...args: any[]) {
@@ -22,7 +24,7 @@ export function log(...args: any[]) {
 }
 
 export function error(...args: any[]) {
-  console.log(
+  console.error(
     `%c${getTimeString()} %cTNCCE %c[%cERROR%c]%c`,
     `color: #555; font-weight: bold;`,
     `color: green; font-weight: bold;`,

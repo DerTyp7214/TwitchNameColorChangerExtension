@@ -78,11 +78,14 @@ async function addTab(tab: chrome.tabs.Tab) {
   }
 }
 
-async function removeTab(tab: chrome.tabs.Tab | number) {
-  const tabId = typeof tab === 'number' ? tab : tab.id
+async function removeTab(tabId: chrome.tabs.Tab | number) {
+  let tab = typeof tabId === 'number' ? tabs[tabId] : tabId
 
-  if (tabId) {
-    await update(tabs[tabId], false)
+  if (!tab && typeof tabId === 'number')
+    tab = await new Promise((res) => chrome.tabs.get(tabId, res))
+
+  if (tab) {
+    await update(tab, false)
   }
 }
 
@@ -95,21 +98,32 @@ async function getUser(tabId: number) {
 
 async function update(tab: chrome.tabs.Tab, active: boolean) {
   const tabId = tab?.id
+
   if (readClient?.readyState() === 'OPEN' && tabId) {
     if (active) {
       const channel = tab?.url?.split('/')[3] || ''
-      if (readClient.getChannels().includes(`#${channel}`) || tabs[tabId])
+      if (
+        readClient.getChannels().includes(`#${channel}`) ||
+        (tabs[tabId]?.url === tab?.url && tab?.url !== undefined)
+      )
         return
-      await readClient.join(channel)
+      if (tabs[tabId]) {
+        await update(tabs[tabId], false)
+      }
+      await readClient.join(channel).catch(async (err) => {
+        log('Error joining channel', err)
+        await getUser(tabId)
+      })
       log('Joining channel', channel)
       log('Channels', readClient.getChannels())
       tabs[tabId] = tab
     }
     if (!active) {
       const channel = tab?.url?.split('/')[3] || ''
-      if (!readClient.getChannels().includes(`#${channel}`) && !tabs[tabId])
-        return
-      await readClient.part(channel)
+      await readClient.part(channel).catch(async (err) => {
+        log('Error leaving channel', err)
+        await getUser(tabId)
+      })
       log('Leaving channel', channel)
       delete tabs[tabId]
     }
@@ -142,6 +156,9 @@ chrome.tabs.onUpdated.addListener(async function (tabId, changeInfo, tab) {
 })
 
 chrome.windows.onRemoved.addListener(function (windowId) {
+  if (tncceLiveChatWindow && tncceLiveChatWindow.id === windowId) {
+    tncceLiveChatWindow = undefined
+  }
   chrome.tabs.query({ windowId: windowId }, function (tabs) {
     tabs.forEach(removeTab)
   })
@@ -154,5 +171,93 @@ chrome.runtime.onMessage.addListener(async function (request) {
     if (twitchUser && (!readClient || !writeClient))
       await createTmiClient(twitchUser)
     return true
+  } else if (request.type === 'liveChat') {
+    if (tncceLiveChatWindow && tncceLiveChatWindow.id) {
+      chrome.windows.update(tncceLiveChatWindow.id, { focused: true })
+      chrome.tabs.query({ windowId: tncceLiveChatWindow.id }, function (tabs) {
+        if (tabs.length) {
+          chrome.tabs.sendMessage(tabs[0].id || 0, {
+            ...request,
+            type: 'liveChat',
+          })
+        }
+      })
+    }
+    return true
+  }
+})
+
+const parent = chrome.contextMenus.create({
+  id: 'tncce',
+  title: 'TNCCE',
+})
+
+chrome.contextMenus.create({
+  id: 'tncce-tmi-channels',
+  title: 'TMI Channels',
+  parentId: parent,
+})
+
+chrome.contextMenus.create({
+  id: 'tncce-tmi-live-chat',
+  title: 'TMI Live Chat',
+  parentId: parent,
+})
+
+let tncceLiveChatWindow: chrome.windows.Window | undefined
+
+chrome.contextMenus.onClicked.addListener(async function (info, tab) {
+  switch (info.menuItemId) {
+    case 'tncce-tmi-channels':
+      if (readClient) {
+        const channels = readClient.getChannels()
+        log('Channels', channels)
+        chrome.notifications.create({
+          type: 'basic',
+          iconUrl: 'icons/pipete.png',
+          title: 'TNCCE - TMI Channels',
+          message: channels.map((c) => c.substring(1)).join(', '),
+        })
+      }
+      break
+    case 'tncce-tmi-live-chat':
+      if (writeClient && readClient) {
+        const result: chrome.scripting.InjectionResult<Awaited<any>>[] =
+          await new Promise((res) =>
+            chrome.scripting.executeScript(
+              {
+                target: {
+                  tabId: tab?.id ?? 0,
+                },
+                func: function () {
+                  const chat = document.querySelector(
+                    'section[data-test-selector="chat-room-component-layout"]'
+                  )
+
+                  const boundingRect = chat?.getBoundingClientRect()
+
+                  return {
+                    width: chat?.clientWidth,
+                    height: chat?.clientHeight,
+                    left: boundingRect?.left,
+                    top: boundingRect?.top,
+                  }
+                },
+              },
+              res
+            )
+          )
+        const { width, height, left, top } = result[0]?.result ?? {}
+        tncceLiveChatWindow = await chrome.windows.create({
+          url: chrome.runtime.getURL('livechat.html'),
+          type: 'popup',
+          width: width ?? 400,
+          height: height ?? 600,
+          left,
+          top,
+          focused: true,
+        })
+      }
+      break
   }
 })

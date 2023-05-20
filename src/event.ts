@@ -1,4 +1,3 @@
-
 interface EventData {
   [key: string]: any
 }

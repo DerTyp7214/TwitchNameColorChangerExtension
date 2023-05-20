@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@500&display=swap" rel="stylesheet">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TNCCE Live Chat</title>
+
+    <style>
+        html,
+        body {
+            height: 100%;
+            background: #282831;
+            color: #fff;
+            margin: 0;
+        }
+
+        #chat {
+            height: calc(100% - 20px);
+        }
+
+        .message {
+            padding: 4px 2px;
+        }
+
+        .message .channel {
+            color: #adadb870;
+            font-size: 10px;
+        }
+
+        .message .time {
+            color: #adadb8;
+            font-size: 10px;
+            font-family: 'Roboto Mono', sans-serif, monospace;
+            letter-spacing: .6px;
+        }
+
+        .message .name {
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+    <button style="height: 20px; width: 100%;" onclick="window.location.reload()">Reload</button>
+    <div id="chat"></div>
+
+    <script src="liveChat.js"></script>
+</body>
+
+</html>

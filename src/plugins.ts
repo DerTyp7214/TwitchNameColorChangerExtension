@@ -18,7 +18,8 @@ class Plugins {
     message: string,
     self: boolean
   ) {
-    log(channel, tags.username, message)
+    this.liveChat(channel, tags, message, self)
+
     if (tags.username === this.user.currentUserLogin) {
       this.changeColor(tags)
     }
@@ -38,10 +39,30 @@ class Plugins {
     log(channel, username, method, message, userstate)
   }
 
-  async changeColor(userState: tmi.CommonUserstate) {
+  private async changeColor(userState: tmi.CommonUserstate) {
     const currentColor = Color(userState.color)
 
     await this.client.color(currentColor.rotate(30).hex())
+  }
+
+  private async liveChat(
+    channel: string,
+    tags: tmi.ChatUserstate,
+    message: string,
+    self: boolean
+  ) {
+    if (self) return
+
+    log(channel, tags.username, message)
+
+    await chrome.runtime
+      .sendMessage({
+        type: 'liveChat',
+        channel,
+        tags,
+        message,
+      })
+      .catch(() => {})
   }
 }
 

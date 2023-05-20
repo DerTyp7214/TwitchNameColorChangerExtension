@@ -2,10 +2,12 @@ const path = require('path');
 const CopyPlugin = require('copy-webpack-plugin');
 module.exports = {
     mode: "production",
+    devtool: "source-map",
     entry: {
         background: path.resolve(__dirname, "..", "src", "background.ts"),
         content: path.resolve(__dirname, "..", "src", "content.ts"),
         bridge: path.resolve(__dirname, "..", "src", "bridge.ts"),
+        liveChat: path.resolve(__dirname, "..", "src", "liveChat.ts"),
     },
     output: {
         path: path.join(__dirname, "../dist"),
