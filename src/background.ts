@@ -34,10 +34,10 @@ async function createTmiClient(user: TwitchUser) {
 
   plugins = new Plugins(writeClient, user)
 
-  readClient.on('connecting', () => {
+  readClient.once('connecting', () => {
     log('Connecting ReadClient')
   })
-  readClient.on('connected', async () => {
+  readClient.once('connected', async () => {
     log('Joining channels')
     for (let i = 0; i < chatsToJoin.length; i++) {
       const channel = chatsToJoin.pop()
@@ -72,17 +72,23 @@ const tabs: {
 const chatsToJoin: string[] = []
 
 async function addTab(tab: chrome.tabs.Tab) {
-  if (tab.url?.includes('twitch.tv') && tab.id && !tabs[tab.id]) {
+  if (tab.url?.includes('twitch.tv') && tab.id && !tabs[tab.id] && tab.url) {
     await getUser(tab.id)
     await update(tab, true)
   }
 }
 
 async function removeTab(tabId: chrome.tabs.Tab | number) {
-  let tab = typeof tabId === 'number' ? tabs[tabId] : tabId
+  let tab: chrome.tabs.Tab | undefined =
+    typeof tabId === 'number' ? tabs[tabId] : tabId
 
   if (!tab && typeof tabId === 'number')
-    tab = await new Promise((res) => chrome.tabs.get(tabId, res))
+    tab = await new Promise<chrome.tabs.Tab>((res) =>
+      chrome.tabs.get(tabId, res)
+    ).catch(async () => {
+      await reconnect()
+      return undefined
+    })
 
   if (tab) {
     await update(tab, false)
@@ -134,24 +140,127 @@ async function update(tab: chrome.tabs.Tab, active: boolean) {
   }
 }
 
+async function reconnect(notify = false) {
+  if (readClient) {
+    const connectedChannels = [...new Set(readClient.getChannels())].map((c) =>
+      c.substring(1).toLowerCase()
+    )
+    const channels: string[] = []
+
+    const tabsWithTwitch = await new Promise<chrome.tabs.Tab[]>((res) =>
+      chrome.tabs.query({ url: '*://*.twitch.tv/*' }, res)
+    )
+
+    for (let i = 0; i < tabsWithTwitch.length; i++) {
+      const tab = tabsWithTwitch[i]
+      const channel = (tab?.url?.split('/')[3] || '').toLowerCase()
+      if (!channels.includes(channel)) channels.push(channel)
+    }
+
+    const initMessage = `Checking ${channels.length} channels and ${connectedChannels.length} connected channels`
+
+    const notificationId = notify
+      ? await new Promise<string>((res) =>
+          chrome.notifications.create(
+            {
+              type: 'basic',
+              iconUrl: 'icons/pipete.png',
+              title: 'TNCCE - TMI Reconnect',
+              message: initMessage,
+            },
+            res
+          )
+        )
+      : ''
+
+    for (let i = 0; i < connectedChannels.length; i++) {
+      const channel = connectedChannels[i]
+      if (!channels.includes(channel)) {
+        log('Leaving channel', channel)
+        await readClient.part(channel).catch((error) => {
+          log('Error leaving channel', channel, error)
+        })
+        await new Promise((res) => setTimeout(res, 50))
+      } else {
+        channels.splice(channels.indexOf(channel), 1)
+      }
+    }
+
+    for (let i = 0; i < channels.length; i++) {
+      const channel = channels[i]
+      log('Joining channel', channel)
+      await readClient.join(channel).catch((error) => {
+        log('Error joining channel', channel, error)
+      })
+      await new Promise((res) => setTimeout(res, 50))
+      connectedChannels.push(channel)
+    }
+
+    if (notify) {
+      await new Promise((res) =>
+        chrome.notifications.update(
+          notificationId,
+          {
+            message: `Reconnected to ${channels.length} channels`,
+          },
+          res
+        )
+      )
+
+      await new Promise((res) => setTimeout(res, 2000))
+      await new Promise((res) =>
+        chrome.notifications.clear(notificationId, res)
+      )
+    }
+  }
+}
+
 chrome.webNavigation.onCompleted.addListener(
   async function (details) {
     const tab = await new Promise<chrome.tabs.Tab>((res) =>
       chrome.tabs.get(details.tabId, res)
-    )
+    ).catch(async () => {
+      await reconnect()
+      return undefined
+    })
 
-    await addTab(tab)
+    if (tab) await addTab(tab)
   },
   {
     url: [{ hostContains: 'twitch.tv' }],
   }
 )
 
-chrome.tabs.onRemoved.addListener(removeTab)
-chrome.tabs.onUpdated.addListener(async function (tabId, changeInfo, tab) {
-  if (changeInfo.status === 'complete') {
-    await removeTab(tabId)
-    await addTab(tab)
+chrome.tabs.onRemoved.addListener(async function (tabId) {
+  const tab = tabs[tabId]
+  if (tab) {
+    const channel = tab.url?.split('/')[3]
+    if (channel) {
+      log('Leaving channel', channel)
+      await readClient?.part(channel)?.catch(async (error) => {
+        log('Error leaving channel', channel, error)
+        await reconnect()
+      })
+    }
+    delete tabs[tabId]
+  }
+})
+chrome.tabs.onUpdated.addListener(async function (_, changeInfo, tab) {
+  if (changeInfo.status === 'complete' && tab?.url?.includes('twitch.tv')) {
+    const cachedTab = tabs[tab.id ?? 0]
+    if (cachedTab) {
+      await removeTab(cachedTab)
+      await addTab(tab)
+    } else {
+      const channel = tab?.url?.split('/')[3]
+      if (channel) {
+        log('Leaving channel', channel)
+        await readClient?.part(channel)?.catch(async (error) => {
+          log('Error leaving channel', channel, error)
+          await reconnect()
+        })
+      }
+    }
   }
 })
 
@@ -159,8 +268,11 @@ chrome.windows.onRemoved.addListener(function (windowId) {
   if (tncceLiveChatWindow && tncceLiveChatWindow.id === windowId) {
     tncceLiveChatWindow = undefined
   }
-  chrome.tabs.query({ windowId: windowId }, function (tabs) {
-    tabs.forEach(removeTab)
+  chrome.tabs.query({ windowId }, async function (tabs) {
+    for (let i = 0; i < tabs.length; i++) {
+      const tab = tabs[i]
+      await removeTab(tab)
+    }
   })
 })
 
@@ -199,8 +311,26 @@ chrome.contextMenus.create({
 })
 
 chrome.contextMenus.create({
+  id: 'tncce-tmi-reconnect',
+  title: 'TMI Reconnect',
+  parentId: parent,
+})
+
+chrome.contextMenus.create({
   id: 'tncce-tmi-live-chat',
   title: 'TMI Live Chat',
+  parentId: parent,
+})
+
+chrome.contextMenus.create({
+  id: 'tncce-tmi-separator-1',
+  type: 'separator',
+  parentId: parent,
+})
+
+chrome.contextMenus.create({
+  id: 'tncce-reload',
+  title: 'Reload',
   parentId: parent,
 })
 
@@ -208,6 +338,9 @@ let tncceLiveChatWindow: chrome.windows.Window | undefined
 
 chrome.contextMenus.onClicked.addListener(async function (info, tab) {
   switch (info.menuItemId) {
+    case 'tncce-reload':
+      chrome.runtime.reload()
+      break
     case 'tncce-tmi-channels':
       if (readClient) {
         const channels = readClient.getChannels()
@@ -258,6 +391,9 @@ chrome.contextMenus.onClicked.addListener(async function (info, tab) {
           focused: true,
         })
       }
+      break
+    case 'tncce-tmi-reconnect':
+      await reconnect(true)
       break
   }
 })
